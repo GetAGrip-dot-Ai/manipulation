@@ -1,0 +1,11 @@
+<launch>
+
+  <!-- Robot namespace -->
+  <arg name="robot_name" default="my_gen3"/>
+  <arg name="start_delay_seconds" default="0"/>
+
+  <node name="manipulation" pkg="manipulation" type="manipulation" ns="$(arg robot_name)" respawn="false" output="screen">
+  </node>
+  
+
+</launch>
