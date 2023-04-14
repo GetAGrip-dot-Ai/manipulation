@@ -11,10 +11,18 @@
 #include <std_msgs/Int8.h>
 #include <manipulation/Obstacle.h>
 #include <manipulation/harvest.h>
+#include <manipulation/multi_frame.h>
 
 const double tau = 2 * M_PI;
 static const std::string PLANNING_GROUP = "arm";
 namespace rvt = rviz_visual_tools;
+
+// moveit::planning_interface::MoveGroupInterface move_group_interface(PLANNING_GROUP);
+// moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+// const moveit::core::JointModelGroup* joint_model_group;
+// moveit_visual_tools::MoveItVisualTools visual_tools("base");
+// Eigen::Isometry3d text_pose;
+
 
 // fake ee world
 int done=0;
@@ -28,10 +36,17 @@ geometry_msgs::Pose basket_pose; // need to hardcode in srv callback
 geometry_msgs::Pose reset_pose; // need to hardcode in srv callback
 geometry_msgs::Pose approach_pose; // need to hardcode in srv callback
 int approach_pose_num = 0;
+int in_case_2 = 0;
+manipulation::multi_frame mf_srv;
+ros::ServiceClient mf_client;
 
+geometry_msgs::PoseStamped mf_frame0_pose;
+geometry_msgs::PoseStamped mf_frame1_pose;
+geometry_msgs::PoseStamped mf_frame2_pose;
+geometry_msgs::PoseStamped mf_frame3_pose;
+geometry_msgs::PoseStamped mf_frame4_pose;
+geometry_msgs::PoseStamped mf_frame5_pose;
 
-// manipulation::multi_frame mf_srv;
-// ros::ServiceClient mf_client;
 
 // fake ee world
 ros::Publisher ee_pub;
@@ -88,10 +103,8 @@ void addObstacle(geometry_msgs::Pose obstacle_pose, shape_msgs::SolidPrimitive p
   // visual_tools.prompt("Press 'n' in the RvizVisualToolsGui window to once the collision object appears in RViz");
 }
 
-
 // move to target pose
-void moveToPose(geometry_msgs::Pose target_pose)
-{
+void moveToPose(geometry_msgs::Pose target_pose){
   moveit::planning_interface::MoveGroupInterface move_group_interface(PLANNING_GROUP);
   moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
   const moveit::core::JointModelGroup* joint_model_group = move_group_interface.getCurrentState()->getJointModelGroup(PLANNING_GROUP);
@@ -147,33 +160,190 @@ void moveToPose(geometry_msgs::Pose target_pose)
   move_group_interface.move();
 }
 
+// move to target pose
+void moveToPrevFrame(int frame_id){
+  ros::AsyncSpinner spinner(1);
+  spinner.start();
+  moveit::planning_interface::MoveGroupInterface move_group_interface(PLANNING_GROUP);
+  moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+  const moveit::core::JointModelGroup* joint_model_group = move_group_interface.getCurrentState()->getJointModelGroup(PLANNING_GROUP);
+  moveit_visual_tools::MoveItVisualTools visual_tools("base");
+  visual_tools.deleteAllMarkers();
+  visual_tools.loadRemoteControl();
+
+  // RViz provides many types of markers, in this demo we will use text, cylinders, and spheres
+  Eigen::Isometry3d text_pose = Eigen::Isometry3d::Identity();
+  text_pose.translation().z() = 1.0;
+  visual_tools.publishText(text_pose, "MoveGroupInterface Demo", rvt::WHITE, rvt::XLARGE);
+
+  // Batch publishing is used to reduce the number of messages being sent to RViz for large visualizations
+  visual_tools.trigger();
+
+  // Getting Basic Information
+  // ^^^^^^^^^^^^^^^^^^^^^^^^^
+  // print the name of the reference frame for this robot
+  ROS_INFO_NAMED("tutorial", "Planning frame: %s", move_group_interface.getPlanningFrame().c_str());
+  //  print the name of the end-effector link for this group.
+  ROS_INFO_NAMED("tutorial", "End effector link: %s", move_group_interface.getEndEffectorLink().c_str());
+  // list of all the groups in the robot:
+  ROS_INFO_NAMED("tutorial", "Available Planning Groups:");
+  std::copy(move_group_interface.getJointModelGroupNames().begin(),
+            move_group_interface.getJointModelGroupNames().end(), std::ostream_iterator<std::string>(std::cout, ", "));
+
+  // we call the planner to compute the plan and visualize it.
+  // tf2::Quaternion q;
+  // q.setRPY(-M_PI/2,-M_PI/2,-M_PI/2);; //kinova
+  // geometry_msgs::Quaternion quat;
+  // quat = tf2::toMsg(q);
+  // geometry_msgs::Pose constrained_pose;
+  // constrained_pose.orientation = quat;
+  // constrained_pose.position = target_pose.position;
+  // constrained_pose.position.x -= (0.192 - 0.061525); // offset between our end-effector gripping point and tool_frame for robotiq ee
+
+  geometry_msgs::Pose frame_pose;
+
+  // pose 1
+  if (frame_id == 0){
+    frame_pose = mf_frame0_pose.pose;
+  }
+  // pose 2
+  else if (frame_id==1){
+    frame_pose = mf_frame1_pose.pose;
+  }
+  // pose 3
+  else if (frame_id==2){
+    frame_pose = mf_frame2_pose.pose;
+  }
+  // pose 4
+  else if (frame_id==3){
+    frame_pose = mf_frame3_pose.pose;
+  }
+  // pose 5
+  else{
+    frame_pose = mf_frame4_pose.pose;
+  }
+  
+  
+  move_group_interface.setPoseTarget(frame_pose);
+
+  // make plan
+  moveit::planning_interface::MoveGroupInterface::Plan my_plan;
+  bool success = (move_group_interface.plan(my_plan) == moveit::core::MoveItErrorCode::SUCCESS);
+  ROS_INFO_NAMED("tutorial", "Visualizing plan 1 (pose goal) %s", success ? "" : "FAILED");
+
+  // // visualize plan
+  ROS_INFO_NAMED("tutorial", "Visualizing plan 1 as trajectory line");
+  // visual_tools.publishAxisLabeled(target_pose, "pose1");
+  // visual_tools.publishText(text_pose, "Pose Goal", rvt::WHITE, rvt::XLARGE);
+  visual_tools.publishTrajectoryLine(my_plan.trajectory_, joint_model_group);
+  visual_tools.trigger();
+
+  // execute plan
+  // visual_tools.prompt("execute?");
+  move_group_interface.move();
+}
+
+// multiframe moves
+void multiframe(int frame_id, bool first){
+  ros::AsyncSpinner spinner(1);
+  spinner.start();
+  moveit::planning_interface::MoveGroupInterface move_group_interface(PLANNING_GROUP);
+  moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+  const moveit::core::JointModelGroup* joint_model_group = move_group_interface.getCurrentState()->getJointModelGroup(PLANNING_GROUP);
+  moveit_visual_tools::MoveItVisualTools visual_tools("base");
+  visual_tools.deleteAllMarkers();
+  visual_tools.loadRemoteControl();
+
+  Eigen::Isometry3d text_pose = Eigen::Isometry3d::Identity();
+  text_pose.translation().z() = 1.0;
+  visual_tools.publishText(text_pose, "MoveGroupInterface Demo", rvt::WHITE, rvt::XLARGE);
+  visual_tools.trigger();
+
+  // get current pose
+  geometry_msgs::PoseStamped current_pose = move_group_interface.getCurrentPose();
+
+  // set orientation
+  tf2::Quaternion q;
+  q.setRPY(-M_PI/2,-M_PI/2,-M_PI/2); //kinova
+  geometry_msgs::Quaternion quat;
+  quat = tf2::toMsg(q);
+
+  geometry_msgs::Pose pose;
+  pose.orientation = quat;
+  pose.position = current_pose.pose.position;
+
+  ROS_INFO_STREAM("in frame_id "<< frame_id);
+
+  if(first){
+    mf_frame0_pose = move_group_interface.getCurrentPose();
+  }
+
+  // pose 1
+  if (frame_id == 0){
+    pose.position.z += 0.02;
+    mf_frame1_pose = move_group_interface.getCurrentPose();
+  }
+  // pose 2
+  else if (frame_id==1){
+    pose.position.y -= 0.02;
+    mf_frame2_pose = move_group_interface.getCurrentPose();
+  }
+  // pose 3
+  else if (frame_id==2){
+    pose.position.z -= 0.04;
+    mf_frame3_pose = move_group_interface.getCurrentPose();
+  }
+  // pose 4
+  else if (frame_id==3){
+    pose.position.y += 0.04;
+    mf_frame4_pose = move_group_interface.getCurrentPose();
+  }
+  // pose 5
+  else{
+    pose.position.z += 0.04;
+    mf_frame5_pose = move_group_interface.getCurrentPose();
+  }
+
+  move_group_interface.setPoseTarget(pose);
+  // move_group_interface.setPlanningTime(15.0);
+  moveit::planning_interface::MoveGroupInterface::Plan my_plan;
+  bool success1 = (move_group_interface.plan(my_plan) == moveit::core::MoveItErrorCode::SUCCESS);
+  visual_tools.publishTrajectoryLine(my_plan.trajectory_, joint_model_group);
+  visual_tools.trigger();
+  move_group_interface.move();
+
+}
 
 // update POI 
 void updatePOICallback(const geometry_msgs::Pose msg)
 {
+  ros::AsyncSpinner spinner(1);
+  spinner.start();
+
+  ROS_INFO_STREAM("in poi callback");
+  
   // real svd world 
 	poi_pose = msg;
 
   // fake svd world
-  // if (done==0){
-  //   done = 1;
-  //   ROS_INFO_STREAM("POI Pose");
-  //   ROS_INFO_STREAM(poi_pose);
-  //   ROS_INFO_STREAM("Moving to pre-grap POI");
-  //   poi_pose.position.x -= 0.1;
-  //   moveToPose(poi_pose);
+  if (done==0){
+    done = 1;
+    ROS_INFO_STREAM("POI Pose");
+    ROS_INFO_STREAM(poi_pose);
+    ROS_INFO_STREAM("Moving to pre-grap POI");
+    poi_pose.position.x -= 0.1;
+    moveToPose(poi_pose);
 
-  //   ROS_INFO_STREAM("EE finished opening, moving to POI");
-  //   poi_pose.position.x += 0.1;
-  //   moveToPose(poi_pose);
+    ROS_INFO_STREAM("fake EE finished opening, moving to POI");
+    poi_pose.position.x += 0.1;
+    moveToPose(poi_pose);
 
     // ROS_INFO_STREAM("Publishing to EE World");
     // std_msgs::Int8 state;
     //   state.data = 8;
     // ee_pub.publish(state);
-  // }
+  }
 }
-
 
 // ee response callback (for the fake world)
 void eeResponseCallback(const std_msgs::Int8 msg)
@@ -208,7 +378,6 @@ void eeResponseCallback(const std_msgs::Int8 msg)
   // }
 }
 
-
 // update obstacle callback
 void updateObstaclesCallback(const manipulation::Obstacle msg)
 {
@@ -232,11 +401,11 @@ void updateObstaclesCallback(const manipulation::Obstacle msg)
 //   }
 }
 
-
 // harvest service callback
 bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::harvest::Response& response)
 {
-  int state = request.req_id;
+  // int state = request.req_id;
+  int state = 2;
   switch (state) {
     
     case 0:{ // move to reset pose
@@ -285,37 +454,74 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
       return 1;
     }
 
-    // case 2:{ // multiframe   //ishu: chance the move may fail
-    //   std::cout << "running multiframe" << std::endl;
-    //   int frame_id = 0;
-    //   while(frame_id<5){
+    case 2:{ // multiframe 
+      if (in_case_2==0){
+        in_case_2 = 1;
+        std::cout << "running multiframe" << std::endl;
+        int frame_id = 0;
 
-    //     mf_srv.request.req_id = 0;
-    //     if(mf_client.call(mf_srv)){
-    //         ROS_INFO("Received Response");
-    //         int did_yolo = harvest_srv.response.reply;
-    //         // ROS_INFO_STREAM(success);
-    //         if(did_yolo==1){
-    //             ROS_INFO("Manipulation: Done with Yolo, moving to new waypoint");
-    //             // this->next_state = State::APPROACH_PLANT_POSITIONS;
-    //             // increment waypoint index -- make function that takes current pose & index
-    //         }
-    //         if(did_yolo==1){
-    //             ROS_INFO("Manipulation: Done with Yolo, moving to new waypoint");
-    //             // this->next_state = State::APPROACH_PLANT_POSITIONS;
-    //             // increment waypoint index -- make function that takes current pose & index
-    //         }
-    //     }
-    //     else{
-    //         ROS_ERROR("Manipulation: No reponse received from perception multiframe server");
-    //         response.reply = 0;
-    //     }
-    //   }
+        while(!mf_client.call(mf_srv)){
+          ROS_INFO("WAITING");
+        }
 
-    //   ROS_INFO("Manipulation: Multi_frame state completed");
-    //   response.reply = 1
+        while(frame_id<5){
 
-    // }
+          ROS_INFO("In while loop");
+          ROS_INFO_STREAM(frame_id);
+
+          mf_srv.request.req_id = 0;
+          ROS_INFO_STREAM("response from perception "<<mf_client.call(mf_srv));
+          // frames 0 to 5
+          // if(mf_client.call(mf_srv)){ // req: 0
+            ROS_INFO("Received Response");
+            int did_yolo = mf_srv.response.reply;
+            if(did_yolo==1){
+                ROS_INFO("Manipulation: Done with Yolo, moving to new waypoint");
+                if(frame_id==0){
+                  multiframe(frame_id, true); // execute multiframe move
+                }
+                else{
+                  multiframe(frame_id, false);
+                }
+                frame_id += 1;
+            }
+          // }
+          // else{
+          //   ROS_INFO("waiting for response");
+          // }
+        }
+        // frame 6
+        if (frame_id==5){
+          mf_srv.request.req_id = 1; // req: 1
+          if(mf_client.call(mf_srv)){
+            ROS_INFO("Request to process multi frames");
+            int selected_frame = mf_srv.response.reply;
+            if(selected_frame==-1){
+              ROS_INFO("no pepper found, telling system we are done");
+              response.reply = 0; // system level respond false
+            }
+            else{
+              ROS_INFO("pepper found in frame: ");
+              ROS_INFO_STREAM(selected_frame);
+              ROS_INFO("move to new frame");
+              // ROS_INFO("Multiframe Done - No more POIs exist");
+              moveToPrevFrame(selected_frame);
+              mf_srv.request.req_id = 2;
+              if(mf_client.call(mf_srv)){
+                ROS_INFO("Got a response that POI was published, tell system we are done with multiframe");
+                response.reply = 1; // system level respond true
+              }
+            }
+          }
+        }
+
+      }
+      
+      
+
+      return 1;
+
+    }
 
     case 3:{ // create pepper obstacles and move to pre-grasp POI pose
 
@@ -398,34 +604,51 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
 
 
 int main(int argc, char **argv) {
+  
+  ROS_INFO("in main");
 
-    // start node
-    ros::init(argc, argv, "manipulation");
-    ros::NodeHandle n;
-    ros::AsyncSpinner spinner(1);
-    spinner.start();
+  // start node
+  ros::init(argc, argv, "manipulation_node");
+  ros::NodeHandle n;
+  // ros::AsyncSpinner spinner(1);
+  // spinner.start();
 
-    // multiframe srv
-    // mf_client = n.serviceClient<manipulation::multi_frame>("/perception/multi_frame");
+  // joint_model_group = move_group_interface.getCurrentState()->getJointModelGroup(PLANNING_GROUP);
+  // visual_tools.deleteAllMarkers();
+  // visual_tools.loadRemoteControl();
+  // text_pose = Eigen::Isometry3d::Identity();
+  // text_pose.translation().z() = 1.0;
+  // visual_tools.publishText(text_pose, "MoveGroupInterface Demo", rvt::WHITE, rvt::XLARGE);
+  // visual_tools.trigger();
 
-    // subscribers
-    ros::Subscriber poi_sub = n.subscribe("/perception/peduncle/poi", 1000, updatePOICallback);
-    ros::Subscriber obstacle_sub = n.subscribe("/perception/pepper/bbox", 1000, updateObstaclesCallback);
+  // multiframe srv
+  mf_client = n.serviceClient<manipulation::multi_frame>("/perception/multi_frame");
 
-    // fake ee stuff
-    ros::Subscriber ee_sub = n.subscribe("/end_effector/harvest_rsp", 1000, eeResponseCallback);
-    // ee_pub = n.advertise<std_msgs::Int8>("/end_effector/harvest_req", 1000);
+  // subscribers
+  ros::Subscriber poi_sub = n.subscribe("/perception/peduncle/poi", 1000, updatePOICallback);
+  ros::Subscriber obstacle_sub = n.subscribe("/perception/pepper/bbox", 1000, updateObstaclesCallback);
 
-    // harvest srv
-    ros::ServiceServer harvest_server = n.advertiseService("/manipulation/harvest",harvestSrvCallback);
+  // fake ee stuff
+  // ros::Subscriber ee_sub = n.subscribe("/end_effector/harvest_rsp", 1000, eeResponseCallback);
+  // ee_pub = n.advertise<std_msgs::Int8>("/end_effector/harvest_req", 1000);
 
-    
-    ros::Rate loop_rate(1);
-    while(ros::ok()) {
-        ros::spinOnce();
-        loop_rate.sleep();
-    }
-    return 0;
+  // harvest srv
+  ros::ServiceServer harvest_server = n.advertiseService("/manipulation/harvest",harvestSrvCallback);
+  // ROS_INFO("in 0");
+  // multiframe(0);
+  // ROS_INFO("in 1");
+  // multiframe(1);
+  // ROS_INFO("in 2");
+  // multiframe(2);
+  // ROS_INFO("in done");
+  
+  ros::Rate loop_rate(1);
+  while(ros::ok()) {
+    ROS_INFO("wah");
+      ros::spinOnce();
+      loop_rate.sleep();
+  }
+  return 0;
 
 }
 
