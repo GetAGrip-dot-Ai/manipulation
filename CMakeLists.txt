@@ -124,6 +124,7 @@ find_package(catkin REQUIRED COMPONENTS
 add_message_files(
   FILES
   Obstacle.msg
+  dpoi.msg
 )
 
 ## Generate services in the 'srv' folder
@@ -131,6 +132,7 @@ add_service_files(
   FILES
   harvest.srv
   multi_frame.srv
+  visual_servo.srv
 )
 
 generate_messages(

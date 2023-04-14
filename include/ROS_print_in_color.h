@@ -14,7 +14,7 @@
 #include <manipulation/visual_servo.h>
 #include <manipulation/harvest.h>
 #include <manipulation/multi_frame.h>
-// #include <manipulation/ROS_print_in_color.h>
+
 
 // ^^^^^^^^^^ THINGS TO FIX ^^^^^^^^^^
 // approach positions (and orientations)
@@ -22,62 +22,6 @@
 // camera TF
 // throwing error if the move fails
 // error handling: move to reset pose and try move again if error
-
-
-// Defining your own ROS stream color
-
-namespace pc
-{
-  enum PRINT_COLOR
-  {
-    BLACK,
-    RED,
-    GREEN,
-    YELLOW,
-    BLUE,
-    MAGENTA,
-    CYAN,
-    WHITE,
-    ENDCOLOR
-  };
-
-  std::ostream& operator<<(std::ostream& os, PRINT_COLOR c)
-  {
-    switch(c)
-    {
-      case BLACK    : os << "\033[1;30m"; break;
-      case RED      : os << "\033[1;31m"; break;
-      case GREEN    : os << "\033[1;32m"; break;
-      case YELLOW   : os << "\033[1;33m"; break;
-      case BLUE     : os << "\033[1;34m"; break;
-      case MAGENTA  : os << "\033[1;35m"; break;
-      case CYAN     : os << "\033[1;36m"; break;
-      case WHITE    : os << "\033[1;37m"; break;
-      case ENDCOLOR : os << "\033[0m";    break;
-      default       : os << "\033[1;37m";
-    }
-    return os;
-  }
-} //namespace pc
-
-#define ROS_BLACK_STREAM(x)   ROS_INFO_STREAM(pc::BLACK   << x << pc::ENDCOLOR)
-#define ROS_RED_STREAM(x)     ROS_INFO_STREAM(pc::RED     << x << pc::ENDCOLOR)
-#define ROS_GREEN_STREAM(x)   ROS_INFO_STREAM(pc::GREEN   << x << pc::ENDCOLOR)
-#define ROS_YELLOW_STREAM(x)  ROS_INFO_STREAM(pc::YELLOW  << x << pc::ENDCOLOR)
-#define ROS_BLUE_STREAM(x)    ROS_INFO_STREAM(pc::BLUE    << x << pc::ENDCOLOR)
-#define ROS_MAGENTA_STREAM(x) ROS_INFO_STREAM(pc::MAGENTA << x << pc::ENDCOLOR)
-#define ROS_CYAN_STREAM(x)    ROS_INFO_STREAM(pc::CYAN    << x << pc::ENDCOLOR)
-
-#define ROS_BLACK_STREAM_COND(c, x)   ROS_INFO_STREAM_COND(c, pc::BLACK   << x << pc::ENDCOLOR)
-#define ROS_RED_STREAM_COND(c, x)     ROS_INFO_STREAM_COND(c, pc::RED     << x << pc::ENDCOLOR)
-#define ROS_GREEN_STREAM_COND(c, x)   ROS_INFO_STREAM_COND(c, pc::GREEN   << x << pc::ENDCOLOR)
-#define ROS_YELLOW_STREAM_COND(c, x)  ROS_INFO_STREAM_COND(c, pc::YELLOW  << x << pc::ENDCOLOR)
-#define ROS_BLUE_STREAM_COND(c, x)    ROS_INFO_STREAM_COND(c, pc::BLUE    << x << pc::ENDCOLOR)
-#define ROS_MAGENTA_STREAM_COND(c, x) ROS_INFO_STREAM_COND(c, pc::MAGENTA << x << pc::ENDCOLOR)
-#define ROS_CYAN_STREAM_COND(c, x)    ROS_INFO_STREAM_COND(c, pc::CYAN    << x << pc::ENDCOLOR)
-
-// etc ...
-// see also https://en.wikipedia.org/wiki/ANSI_escape_code
 
 
 const double tau = 2 * M_PI;
@@ -213,8 +157,7 @@ void moveToPose(geometry_msgs::Pose target_pose){
   geometry_msgs::Pose constrained_pose;
   constrained_pose.orientation = quat;
   constrained_pose.position = target_pose.position;
-  constrained_pose.position.x += 0.01; //(0.192 - 0.061525); // offset between our end-effector gripping point and tool_frame for robotiq ee
-  constrained_pose.position.z -= 0.01;
+  constrained_pose.position.x -= (0.192 - 0.061525); // offset between our end-effector gripping point and tool_frame for robotiq ee
   move_group_interface.setPoseTarget(constrained_pose);
 
   // make plan
@@ -315,10 +258,6 @@ void moveToPrevFrame(int frame_id){
   // execute plan
   // visual_tools.prompt("execute?");
   move_group_interface.move();
-
-  geometry_msgs::PoseStamped current_pose = move_group_interface.getCurrentPose();
-  ROS_BLUE_STREAM("Selected Multi Frame Position Before Getting POI:");
-  ROS_BLUE_STREAM(current_pose);
 }
 
 // multiframe moves
@@ -350,44 +289,36 @@ void multiframe(int frame_id, bool first){
   pose.orientation = quat;
   pose.position = current_pose.pose.position;
 
-  // ROS_INFO_STREAM("in frame_id "<< frame_id);
-  ROS_CYAN_STREAM("in multiframe for frame_id "<< frame_id);
+  ROS_INFO_STREAM("in frame_id "<< frame_id);
 
   if(first){
     mf_frame0_pose = move_group_interface.getCurrentPose();
-    ROS_BLUE_STREAM(mf_frame0_pose);
   }
 
   // pose 1
   if (frame_id == 0){
     pose.position.z += 0.02;
     mf_frame1_pose = move_group_interface.getCurrentPose();
-    ROS_BLUE_STREAM(mf_frame1_pose);
   }
   // pose 2
   else if (frame_id==1){
     pose.position.y -= 0.02;
     mf_frame2_pose = move_group_interface.getCurrentPose();
-    ROS_BLUE_STREAM(mf_frame2_pose);
   }
   // pose 3
   else if (frame_id==2){
     pose.position.z -= 0.04;
     mf_frame3_pose = move_group_interface.getCurrentPose();
-    ROS_BLUE_STREAM(mf_frame3_pose);
   }
   // pose 4
   else if (frame_id==3){
     pose.position.y += 0.04;
     mf_frame4_pose = move_group_interface.getCurrentPose();
-    ROS_BLUE_STREAM(mf_frame4_pose);
-
   }
   // pose 5
   else{
     pose.position.z += 0.04;
     mf_frame5_pose = move_group_interface.getCurrentPose();
-    ROS_BLUE_STREAM(mf_frame5_pose);
   }
 
   move_group_interface.setPoseTarget(pose);
@@ -416,11 +347,11 @@ void updatePOICallback(const geometry_msgs::Pose msg)
     done = 1;
     ROS_INFO_STREAM("POI Pose");
     ROS_INFO_STREAM(poi_pose);
-    ROS_GREEN_STREAM("Moving to pre-grap POI");
+    ROS_INFO_STREAM("Moving to pre-grap POI");
     poi_pose.position.x -= 0.1;
     moveToPose(poi_pose);
 
-    ROS_GREEN_STREAM("fake EE finished opening, moving to POI");
+    ROS_INFO_STREAM("fake EE finished opening, moving to POI");
     poi_pose.position.x += 0.1;
     moveToPose(poi_pose);
 
@@ -563,20 +494,17 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
         }
         
         // frames 0 to 5
-        while(frame_id<3){
+        while(frame_id<5){
 
           ROS_INFO("In while loop");
-          // ROS_INFO_STREAM(frame_id);
-
-          ROS_MAGENTA_STREAM("frame id: "<<frame_id);
+          ROS_INFO_STREAM(frame_id);
 
           mf_srv.request.req_id = 0;
           ROS_INFO_STREAM("response from perception "<<mf_client.call(mf_srv));
             ROS_INFO("Received Response");
             int did_yolo = mf_srv.response.reply;
             if(did_yolo==1){
-                // ROS_INFO("Manipulation: Done with Yolo, moving to new waypoint");
-                ROS_RED_STREAM("Done with YOLO, moving to new waypoint");
+                ROS_INFO("Manipulation: Done with Yolo, moving to new waypoint");
                 if(frame_id==0){
                   multiframe(frame_id, true); // execute multiframe move
                 }
@@ -588,11 +516,10 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
         }
 
         // frame 6
-        if (frame_id==3){
+        if (frame_id==5){
           mf_srv.request.req_id = 1; // req: 1
           if(mf_client.call(mf_srv)){
-            // ROS_INFO("Request to process multi frames");
-            ROS_RED_STREAM("Request to process multi frames");
+            ROS_INFO("Request to process multi frames");
             int selected_frame = mf_srv.response.reply;
             if(selected_frame==-1){
               ROS_INFO("no pepper found, telling system we are done");
