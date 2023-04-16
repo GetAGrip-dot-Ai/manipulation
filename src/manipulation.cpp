@@ -17,9 +17,8 @@
 
 
 // ^^^^^^^^^^ THINGS TO FIX ^^^^^^^^^^
-// approach positions (and orientations)
-// basket pose orientation
-// camera TF
+// approach positions
+// basket pose position
 // throwing error if the move fails
 // error handling: move to reset pose and try move again if error
 
@@ -162,8 +161,15 @@ void addObstacle(geometry_msgs::Pose obstacle_pose, shape_msgs::SolidPrimitive p
   // visual_tools.prompt("Press 'n' in the RvizVisualToolsGui window to once the collision object appears in RViz");
 }
 
+// update obstacle callback
+void updateObstaclesCallback(const manipulation::Obstacle msg)
+{
+  obstacle_poses = msg.pose;
+  obstacle_primitives = msg.primitive;
+}
+
 // move to target pose
-void moveToPose(geometry_msgs::Pose target_pose){
+bool moveToPose(geometry_msgs::Pose target_pose){
   ros::AsyncSpinner spinner(1);
   spinner.start();
 
@@ -221,6 +227,216 @@ void moveToPose(geometry_msgs::Pose target_pose){
   // execute plan
   // visual_tools.prompt("execute?");
   move_group_interface.move();
+  return success;
+}
+
+// cartesian move to POI
+void cartMoveToPoi(){
+  ros::AsyncSpinner spinner(1);
+  spinner.start();
+
+  moveit::planning_interface::MoveGroupInterface move_group_interface(PLANNING_GROUP);
+  moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+  const moveit::core::JointModelGroup* joint_model_group = move_group_interface.getCurrentState()->getJointModelGroup(PLANNING_GROUP);
+  moveit_visual_tools::MoveItVisualTools visual_tools("base");
+  visual_tools.deleteAllMarkers();
+  visual_tools.loadRemoteControl();
+
+  // RViz provides many types of markers, in this demo we will use text, cylinders, and spheres
+  Eigen::Isometry3d text_pose = Eigen::Isometry3d::Identity();
+  text_pose.translation().z() = 1.0;
+  visual_tools.publishText(text_pose, "Demo", rvt::WHITE, rvt::XLARGE);
+  visual_tools.trigger();
+
+  move_group_interface.setMaxVelocityScalingFactor(0.5);
+  move_group_interface.setMaxAccelerationScalingFactor(0.1);
+
+  std::vector<geometry_msgs::Pose> waypoints;
+  geometry_msgs::PoseStamped current_pose = move_group_interface.getCurrentPose();
+  geometry_msgs::Pose next_pose = current_pose.pose;
+
+  next_pose.position.x += 0.165;
+  waypoints.push_back(next_pose);
+
+  moveit_msgs::RobotTrajectory trajectory;
+  const double jump_threshold = 0.0;
+  const double eef_step = 0.01;
+  double fraction = move_group_interface.computeCartesianPath(waypoints, eef_step, jump_threshold, trajectory);
+
+  ROS_INFO_STREAM("DONE");
+
+  // sleep(15.0);
+  // Set the execution duration of the trajectory
+  const double duration = 15;
+  double traj_duration = trajectory.joint_trajectory.points.back().time_from_start.toSec();
+  double scale = duration / traj_duration;
+  for (auto& point : trajectory.joint_trajectory.points) {
+    point.time_from_start *= scale;
+  }
+
+  // Visualize the plan in RViz
+  visual_tools.deleteAllMarkers();
+  visual_tools.publishText(text_pose, "Cartesian Path", rvt::WHITE, rvt::XLARGE);
+  visual_tools.publishPath(waypoints, rvt::LIME_GREEN, rvt::SMALL);
+  for (std::size_t i = 0; i < waypoints.size(); ++i)
+    visual_tools.publishAxisLabeled(waypoints[i], "pt" + std::to_string(i), rvt::SMALL);
+  visual_tools.trigger();
+  // visual_tools.prompt("Execute multiframe move?");
+
+  // You can execute a trajectory like this.
+  move_group_interface.execute(trajectory);
+}
+
+// cartesian move back to pregrasp pose
+void cartMoveToPreGrasp(){
+  ros::AsyncSpinner spinner(1);
+  spinner.start();
+
+  moveit::planning_interface::MoveGroupInterface move_group_interface(PLANNING_GROUP);
+  moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+  const moveit::core::JointModelGroup* joint_model_group = move_group_interface.getCurrentState()->getJointModelGroup(PLANNING_GROUP);
+  moveit_visual_tools::MoveItVisualTools visual_tools("base");
+  visual_tools.deleteAllMarkers();
+  visual_tools.loadRemoteControl();
+
+  // RViz provides many types of markers, in this demo we will use text, cylinders, and spheres
+  Eigen::Isometry3d text_pose = Eigen::Isometry3d::Identity();
+  text_pose.translation().z() = 1.0;
+  visual_tools.publishText(text_pose, "Demo", rvt::WHITE, rvt::XLARGE);
+  visual_tools.trigger();
+
+  move_group_interface.setMaxVelocityScalingFactor(0.5);
+  move_group_interface.setMaxAccelerationScalingFactor(0.1);
+
+  std::vector<geometry_msgs::Pose> waypoints;
+  geometry_msgs::PoseStamped current_pose = move_group_interface.getCurrentPose();
+  geometry_msgs::Pose next_pose = current_pose.pose;
+
+  next_pose.position.x -= 0.165;
+  waypoints.push_back(next_pose);
+
+  moveit_msgs::RobotTrajectory trajectory;
+  const double jump_threshold = 0.0;
+  const double eef_step = 0.01;
+  double fraction = move_group_interface.computeCartesianPath(waypoints, eef_step, jump_threshold, trajectory);
+  // sleep(15.0);
+  // Set the execution duration of the trajectory
+  const double duration = 15;
+  double traj_duration = trajectory.joint_trajectory.points.back().time_from_start.toSec();
+  double scale = duration / traj_duration;
+  for (auto& point : trajectory.joint_trajectory.points) {
+    point.time_from_start *= scale;
+  }
+
+  // Visualize the plan in RViz
+  visual_tools.deleteAllMarkers();
+  visual_tools.publishText(text_pose, "Cartesian Path", rvt::WHITE, rvt::XLARGE);
+  visual_tools.publishPath(waypoints, rvt::LIME_GREEN, rvt::SMALL);
+  for (std::size_t i = 0; i < waypoints.size(); ++i)
+    visual_tools.publishAxisLabeled(waypoints[i], "pt" + std::to_string(i), rvt::SMALL);
+  visual_tools.trigger();
+  // visual_tools.prompt("Execute multiframe move?");
+
+  // You can execute a trajectory like this.
+  move_group_interface.execute(trajectory);
+}
+
+// move to basket drop pose
+void moveToBasket(){
+  ros::AsyncSpinner spinner(1);
+  spinner.start();
+
+  ROS_INFO("moving to joint state");
+
+  moveit::planning_interface::MoveGroupInterface move_group_interface(PLANNING_GROUP);
+  moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+  const moveit::core::JointModelGroup* joint_model_group = move_group_interface.getCurrentState()->getJointModelGroup(PLANNING_GROUP);
+  moveit_visual_tools::MoveItVisualTools visual_tools("base");
+  visual_tools.deleteAllMarkers();
+  visual_tools.loadRemoteControl();
+
+  // RViz provides many types of markers, in this demo we will use text, cylinders, and spheres
+  Eigen::Isometry3d text_pose = Eigen::Isometry3d::Identity();
+  text_pose.translation().z() = 1.0;
+  visual_tools.publishText(text_pose, "MoveGroupInterface Demo", rvt::WHITE, rvt::XLARGE);
+
+  // Batch publishing is used to reduce the number of messages being sent to RViz for large visualizations
+  visual_tools.trigger();
+
+  // current pose
+  geometry_msgs::Pose current_pose = move_group_interface.getCurrentPose().pose;
+  // geometry_msgs::Pose current_pose = current_pose.pose;
+  // float64 zdes = 0.4;
+
+  // current state
+  moveit::core::RobotStatePtr current_state = move_group_interface.getCurrentState();
+  std::vector<double> joint_group_positions;
+  current_state->copyJointGroupPositions(joint_model_group, joint_group_positions);
+  double J0 = joint_group_positions[0];
+
+  // find alpha (offset from base)
+  float alpha = tan(current_pose.position.y / current_pose.position.x);
+  if(alpha < M_PI/2){
+    alpha -= 2*M_PI;
+  }
+
+  // set new J0 value
+  joint_group_positions[0] = J0+alpha+M_PI/3;
+  move_group_interface.setJointValueTarget(joint_group_positions);
+
+  moveit::planning_interface::MoveGroupInterface::Plan my_plan;
+  bool success = (move_group_interface.plan(my_plan) == moveit::core::MoveItErrorCode::SUCCESS);
+  ROS_INFO_NAMED("tutorial", "Visualizing plan 1 (pose goal) %s", success ? "" : "FAILED");
+
+  // Visualize the plan in RViz
+  visual_tools.deleteAllMarkers();
+  visual_tools.publishText(text_pose, "Joint Space Goal", rvt::WHITE, rvt::XLARGE);
+  visual_tools.publishTrajectoryLine(my_plan.trajectory_, joint_model_group);
+  visual_tools.trigger();
+  // visual_tools.prompt("execute?");
+  move_group_interface.move();
+
+  // ros::NodeHandle node_handle;
+  // ros::AsyncSpinner spinner(1);
+
+  // cartesian move down in z
+  std::vector<geometry_msgs::Pose> waypoints;
+  geometry_msgs::PoseStamped current_pose2 = move_group_interface.getCurrentPose();
+  geometry_msgs::Pose next_pose = current_pose2.pose;
+  // float64 dz = next_pose.position.z - desz;
+
+  next_pose.position.z = 0.4;
+  waypoints.push_back(next_pose);
+
+  moveit_msgs::RobotTrajectory trajectory;
+  const double jump_threshold = 0.0;
+  const double eef_step = 0.01;
+  double fraction = move_group_interface.computeCartesianPath(waypoints, eef_step, jump_threshold, trajectory);
+  ROS_INFO_NAMED("tutorial", "Visualizing plan (Cartesian path) (%.2f%% achieved)", fraction * 100.0);
+
+  if (fraction < 0.9){
+    moveToPose(next_pose);
+  }
+  else{
+    // sleep(15.0);
+    // Set the execution duration of the trajectory
+    const double duration = 30;
+    double traj_duration = trajectory.joint_trajectory.points.back().time_from_start.toSec();
+    double scale = duration / traj_duration;
+    for (auto& point : trajectory.joint_trajectory.points) {
+      point.time_from_start *= scale;
+    }
+
+    // Visualize the plan in RViz
+    visual_tools.deleteAllMarkers();
+    visual_tools.publishText(text_pose, "Cartesian Path", rvt::WHITE, rvt::XLARGE);
+    visual_tools.publishPath(waypoints, rvt::LIME_GREEN, rvt::SMALL);
+    for (std::size_t i = 0; i < waypoints.size(); ++i)
+      visual_tools.publishAxisLabeled(waypoints[i], "pt" + std::to_string(i), rvt::SMALL);
+    visual_tools.trigger();
+    // visual_tools.prompt("Execute multiframe move?");
+    move_group_interface.execute(trajectory);
+  }
 }
 
 // multiframe moves
@@ -286,35 +502,89 @@ void multiframe(int frame_id){
 
 }
 
-// update POI 
+// multiframe cartesian
+void cartMultiframe(int frame_id){
+  ros::AsyncSpinner spinner(1);
+  spinner.start();
+
+  moveit::planning_interface::MoveGroupInterface move_group_interface(PLANNING_GROUP);
+  moveit::planning_interface::PlanningSceneInterface planning_scene_interface;
+  const moveit::core::JointModelGroup* joint_model_group = move_group_interface.getCurrentState()->getJointModelGroup(PLANNING_GROUP);
+  moveit_visual_tools::MoveItVisualTools visual_tools("base");
+  visual_tools.deleteAllMarkers();
+  visual_tools.loadRemoteControl();
+
+  // RViz provides many types of markers, in this demo we will use text, cylinders, and spheres
+  Eigen::Isometry3d text_pose = Eigen::Isometry3d::Identity();
+  text_pose.translation().z() = 1.0;
+  visual_tools.publishText(text_pose, "Demo", rvt::WHITE, rvt::XLARGE);
+  visual_tools.trigger();
+
+  move_group_interface.setMaxVelocityScalingFactor(0.5);
+  move_group_interface.setMaxAccelerationScalingFactor(0.1);
+
+  std::vector<geometry_msgs::Pose> waypoints;
+  geometry_msgs::PoseStamped current_pose = move_group_interface.getCurrentPose();
+  geometry_msgs::Pose next_pose = current_pose.pose;
+
+    // pose 1
+  if (frame_id == 0){
+    next_pose.position.z += 0.03;
+    waypoints.push_back(next_pose);
+  }
+  // pose 2
+  else if (frame_id==1){
+    next_pose.position.y -= 0.03;
+    waypoints.push_back(next_pose);
+  }
+  // pose 3
+  else if (frame_id==2){
+    next_pose.position.z -= 0.03;
+    waypoints.push_back(next_pose);
+  }
+  // pose 4
+  else if (frame_id==3){
+    next_pose.position.y += 0.03;
+    waypoints.push_back(next_pose);
+  }
+  // pose 5
+  else{
+    next_pose.position.z += 0.03;
+    waypoints.push_back(next_pose);
+  }
+
+  moveit_msgs::RobotTrajectory trajectory;
+  const double jump_threshold = 0.0;
+  const double eef_step = 0.01;
+  double fraction = move_group_interface.computeCartesianPath(waypoints, eef_step, jump_threshold, trajectory);
+
+  // sleep(15.0);
+  // Set the execution duration of the trajectory
+  const double duration = 7;
+  double traj_duration = trajectory.joint_trajectory.points.back().time_from_start.toSec();
+  double scale = duration / traj_duration;
+  for (auto& point : trajectory.joint_trajectory.points) {
+    point.time_from_start *= scale;
+  }
+
+  // Visualize the plan in RViz
+  visual_tools.deleteAllMarkers();
+  visual_tools.publishText(text_pose, "Cartesian Path", rvt::WHITE, rvt::XLARGE);
+  visual_tools.publishPath(waypoints, rvt::LIME_GREEN, rvt::SMALL);
+  for (std::size_t i = 0; i < waypoints.size(); ++i)
+    visual_tools.publishAxisLabeled(waypoints[i], "pt" + std::to_string(i), rvt::SMALL);
+  visual_tools.trigger();
+  // visual_tools.prompt("Execute multiframe move?");
+
+  // You can execute a trajectory like this.
+  move_group_interface.execute(trajectory);
+}
+
+// update POI
 void updatePOICallback(const geometry_msgs::Pose msg)
 {
-  // ros::AsyncSpinner spinner(1);
-  // spinner.start();
-
   ROS_INFO_STREAM("in poi callback");
-  
-  // real svd world 
 	poi_pose = msg;
-
-  // fake svd world
-  // if (done==0){
-  //   done = 1;
-  //   ROS_INFO_STREAM("POI Pose");
-  //   ROS_INFO_STREAM(poi_pose);
-  //   ROS_GREEN_STREAM("Moving to pre-grap POI");
-  //   poi_pose.position.x -= 0.1;
-  //   moveToPose(poi_pose);
-
-    // ROS_GREEN_STREAM("fake EE finished opening, moving to POI");
-    // poi_pose.position.x += 0.1;
-    // moveToPose(poi_pose);
-
-    // ROS_INFO_STREAM("Publishing to EE World");
-    // std_msgs::Int16 state;
-    // state.data = 4;
-    // ee_pub.publish(state);
-  // }
 }
 
 // update POI from visual servoing
@@ -334,62 +604,6 @@ void deltaPOICallback(const geometry_msgs::Pose msg){
   ROS_MAGENTA_STREAM("x: "<< updated_poi_pose.position.x <<" y: "<< updated_poi_pose.position.y<<" z: "<< updated_poi_pose.position.z);
 }
 
-// ee response callback (for the fake world) -- can delete later
-void eeResponseCallback(const std_msgs::Int16 msg)
-{
-	// int response = msg.data;
-  // if (done2==0){
-  //   done2 = 1;
-  //   if(response==1){
-  //     ROS_INFO_STREAM("EE finished opening, moving to POI");
-  //     poi_pose.position.x += 0.1;
-  //     moveToPose(poi_pose);
-  //     std_msgs::Int16 state;
-  //     state.data = 6;
-  //     ee_pub.publish(state);
-  //   }
-  //   else{
-  //     ROS_INFO_STREAM("Waiting for EE to open");
-  //   }
-  // }
-  // if (done2==1 && done3==0){
-  //   done3=1;
-  //   if(response==1){
-  //     ROS_INFO_STREAM("EE finished extracting, moving to basket pose");
-  //     reset_pose.position.x = 0;
-  //     reset_pose.position.y = -0.4;
-  //     reset_pose.position.z = 0.5;
-  //     moveToPose(reset_pose);
-  //   }
-  //   else{
-  //     ROS_INFO_STREAM("Waiting for EE to extract");
-  //   }
-  // }
-}
-
-// update obstacle callback
-void updateObstaclesCallback(const manipulation::Obstacle msg)
-{
-  obstacle_poses = msg.pose;
-  obstacle_primitives = msg.primitive;
-
-//   if (done2==0){
-//     done2 = 1;
-//     int n = obstacle_poses.size();
-//     int m = obstacle_primitives.size();
-//     std::cout << "n:"<<n <<"m:"<<m<<std::endl;
-
-
-//     addObstacle(obstacle_poses[0], obstacle_primitives[0], std::to_string(0));
-//     addObstacle(obstacle_poses[1], obstacle_primitives[1], std::to_string(1));
-//     addObstacle(obstacle_poses[2], obstacle_primitives[2], std::to_string(2));
-
-//     // for(int i=0; i<2; i++){
-//     //   addObstacle(obstacle_poses[i], obstacle_primitives[i], std::to_string(i));
-//     // }
-//   }
-}
-
 // harvest service callback
 bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::harvest::Response& response)
 {
@@ -401,42 +615,43 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
     
     case 0:{ // move to reset pose
     std::cout << "moving to reset pose" << std::endl;
-    // try {
-      reset_pose.position.x = 0.3;
-      reset_pose.position.y = 0;
-      reset_pose.position.z = 0.7;
-      moveToPose(reset_pose);
-      // if(success==true){
-        response.reply = 1;
-      // }
-      // else{
-        // response.reply = 0;
-      // }
+    reset_pose.position.x = 0.3;
+    reset_pose.position.y = 0;
+    reset_pose.position.z = 0.7;
+    bool success = moveToPose(reset_pose);
+    if(success==true){
+      response.reply = 1;
+    }
+    else{
+      response.reply = 0;
+    }
     return 1;
+
   }
 
     case 1:{ // approach plant positions
       std::cout << "approaching plant" << std::endl;
+      std::cout << "going to approach position "<< approach_pose_num << std::endl;
       if (approach_pose_num == 0){
         approach_pose.position.x = 0.3;
         approach_pose.position.y = 0;
         approach_pose.position.z = 0.6;
         moveToPose(approach_pose);
-        approach_pose_num = 1;
+        // approach_pose_num = 1;
       }
       else if (approach_pose_num == 1){
         approach_pose.position.x = 0.3;
         approach_pose.position.y = 0;
-        approach_pose.position.z = 0.4;
+        approach_pose.position.z = 0.5;
         moveToPose(approach_pose);
-        approach_pose_num = 2;
+        // approach_pose_num = 2;
       }
       else if (approach_pose_num == 2){
         approach_pose.position.x = 0.3;
         approach_pose.position.y = 0;
-        approach_pose.position.z = 0.6;
+        approach_pose.position.z = 0.4;
         moveToPose(approach_pose);
-        approach_pose_num = 3;
+        // approach_pose_num = 3;
       }
       else {
         response.reply = 0;
@@ -450,7 +665,7 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
         ROS_INFO("running multiframe");
         int frame_id = 0;
 
-        mf_srv.request.req_id = 0; // added this today but didn't test
+        mf_srv.request.req_id = 0;
         int case_2_count = 0;
         while(!mf_client.call(mf_srv)){
           if (case_2_count%500==0)
@@ -458,7 +673,7 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
           case_2_count += 1;
         }
         
-        // frames 0 to 4
+        // frames 0 to 1
         while(frame_id<2){
           ROS_INFO("In while loop");
           ROS_MAGENTA_STREAM("frame id: "<<frame_id);
@@ -468,7 +683,7 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
             int did_yolo = mf_srv.response.reply;
             if(did_yolo==1){
                 ROS_RED_STREAM("Done with YOLO, moving to new waypoint");
-                multiframe(frame_id); // execute multiframe move
+                cartMultiframe(frame_id); // execute multiframe move
                 frame_id += 1;
             }
         }
@@ -483,7 +698,8 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
               response.reply = 1; // system level respond true
             }
             else{
-              ROS_BLUE_STREAM("NO PEPPER FOUND");
+              ROS_BLUE_STREAM("NO PEPPERS FOUND");
+              approach_pose_num += 1;
               response.reply = 0; // system level respond false
             }
           }
@@ -509,25 +725,33 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
 
       // move to pre-grasp POI pose
       std::cout << "moving to pre-grasp pose" << std::endl;
-      try {
+      // try {
         pregrasp_pose = poi_pose;
-        pregrasp_pose.position.x -= 0.1;
-        moveToPose(pregrasp_pose);
+        pregrasp_pose.position.x -= 0.15;
+        bool success = moveToPose(pregrasp_pose);
         std::cout << "moved to pre grasp" << std::endl;
+      // }
+      // catch (...) {
+
+      // }
+
+      if (success==true){
+        std::cout << "moved to pre grasp" << std::endl;
+        response.reply = 1;
       }
-      catch (...) {
+      else{
         std::cout << "move to pre-grasp POI pose failed" << std::endl;
         response.reply = 0;
       }
 
-      response.reply = 1;
+      // response.reply = 1;
       return 1;
     }
     
     case 5:{ // move to POI
       std::cout << "moving to POI" << std::endl;
       try {
-        moveToPose(poi_pose);
+        cartMoveToPoi();
       }
       catch (...) {
         std::cout << "move to POI pose failed" << std::endl;
@@ -537,10 +761,10 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
       return 1;
     }
 
-    case 7:{ // move to basket drop pose and remove all obstacles
+    case 7:{ // move to pre-grasp poi, move to basket drop pose and remove all obstacles
       std::cout << "moving to pre-grasp" << std::endl;
       try {
-        moveToPose(pregrasp_pose);
+        cartMoveToPreGrasp();
       }
       catch (...) {
         std::cout << "move to pre-grasp failed" << std::endl;
@@ -548,17 +772,18 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
       }
 
       std::cout << "moving to basket" << std::endl;
-      basket_pose.position.x = 0.45;
-      basket_pose.position.y = 0.3;
-      basket_pose.position.z = 0.4;
-      moveToPose(basket_pose);
+      // basket_pose.position.x = 0.45;
+      // basket_pose.position.y = -0.3;
+      // basket_pose.position.z = 0.4;
+      // bool success = moveToPose(basket_pose);
       // if (success=true){
-          // std::cout << "moved to basket" << std::endl;
+      //     std::cout << "moved to basket" << std::endl;
       // }
       // else{
-        // std::cout << "move to basket pose failed" << std::endl;
-        // response.reply = 0; 
+      //   std::cout << "move to basket pose failed" << std::endl;
+      //   response.reply = 0; 
       // }
+      moveToBasket();
 
       // remove all existing obstacles in the scene
       std::cout << "removing all pepper obstacles" << std::endl;
