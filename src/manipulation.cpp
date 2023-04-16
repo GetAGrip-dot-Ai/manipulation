@@ -17,7 +17,6 @@
 
 
 // ^^^^^^^^^^ THINGS TO FIX ^^^^^^^^^^
-// approach positions
 // basket pose position
 // throwing error if the move fails
 // error handling: move to reset pose and try move again if error
@@ -79,12 +78,6 @@ namespace pc
 const double tau = 2 * M_PI;
 static const std::string PLANNING_GROUP = "arm";
 namespace rvt = rviz_visual_tools;
-
-// fake ee world -- can delete later
-int done=0;
-int done2=0;
-int done3=0;
-ros::Publisher ee_pub;
 
 std::vector<geometry_msgs::Pose> obstacle_poses;
 std::vector<shape_msgs::SolidPrimitive> obstacle_primitives;
@@ -365,8 +358,6 @@ void moveToBasket(){
 
   // current pose
   geometry_msgs::Pose current_pose = move_group_interface.getCurrentPose().pose;
-  // geometry_msgs::Pose current_pose = current_pose.pose;
-  // float64 zdes = 0.4;
 
   // current state
   moveit::core::RobotStatePtr current_state = move_group_interface.getCurrentState();
@@ -381,7 +372,7 @@ void moveToBasket(){
   }
 
   // set new J0 value
-  joint_group_positions[0] = J0+alpha+M_PI/3;
+  joint_group_positions[0] = J0+alpha; // move to 0 degrees
   move_group_interface.setJointValueTarget(joint_group_positions);
 
   moveit::planning_interface::MoveGroupInterface::Plan my_plan;
@@ -399,13 +390,15 @@ void moveToBasket(){
   // ros::NodeHandle node_handle;
   // ros::AsyncSpinner spinner(1);
 
-  // cartesian move down in z
+  // cartesian moves in x and z
   std::vector<geometry_msgs::Pose> waypoints;
   geometry_msgs::PoseStamped current_pose2 = move_group_interface.getCurrentPose();
   geometry_msgs::Pose next_pose = current_pose2.pose;
-  // float64 dz = next_pose.position.z - desz;
 
   next_pose.position.z = 0.4;
+  waypoints.push_back(next_pose);
+
+  next_pose.position.x = 0.3;
   waypoints.push_back(next_pose);
 
   moveit_msgs::RobotTrajectory trajectory;
@@ -426,7 +419,6 @@ void moveToBasket(){
     for (auto& point : trajectory.joint_trajectory.points) {
       point.time_from_start *= scale;
     }
-
     // Visualize the plan in RViz
     visual_tools.deleteAllMarkers();
     visual_tools.publishText(text_pose, "Cartesian Path", rvt::WHITE, rvt::XLARGE);
@@ -437,6 +429,25 @@ void moveToBasket(){
     // visual_tools.prompt("Execute multiframe move?");
     move_group_interface.execute(trajectory);
   }
+
+  // MOVE 60 DEGREES
+  // current state
+  moveit::core::RobotStatePtr current_state2 = move_group_interface.getCurrentState();
+  std::vector<double> joint_group_positions2;
+  current_state2->copyJointGroupPositions(joint_model_group, joint_group_positions2);
+  // set new J0 value
+  joint_group_positions2[0] = M_PI/3; // move to 0 degrees
+  move_group_interface.setJointValueTarget(joint_group_positions2);
+  moveit::planning_interface::MoveGroupInterface::Plan my_plan2;
+  bool success2 = (move_group_interface.plan(my_plan2) == moveit::core::MoveItErrorCode::SUCCESS);
+  // Visualize the plan in RViz
+  visual_tools.deleteAllMarkers();
+  visual_tools.publishText(text_pose, "Joint Space Goal", rvt::WHITE, rvt::XLARGE);
+  visual_tools.publishTrajectoryLine(my_plan2.trajectory_, joint_model_group);
+  visual_tools.trigger();
+  // visual_tools.prompt("execute?");
+  move_group_interface.move();
+
 }
 
 // multiframe moves
@@ -874,10 +885,6 @@ int main(int argc, char **argv) {
   ros::Subscriber poi_sub = n.subscribe("/perception/peduncle/poi", 1000, updatePOICallback);
   ros::Subscriber delta_poi_sub = n.subscribe("/perception/peduncle/dpoi", 1000, deltaPOICallback);
   ros::Subscriber obstacle_sub = n.subscribe("/perception/pepper/bbox", 1000, updateObstaclesCallback);
-
-  // fake ee stuff
-  // ros::Subscriber ee_sub = n.subscribe("/end_effector/harvest_rsp", 1000, eeResponseCallback);
-  // ee_pub = n.advertise<std_msgs::Int16>("/end_effector/harvest_req", 1000);
 
   // harvest server service
   ros::ServiceServer harvest_server = n.advertiseService("/manipulation/harvest",harvestSrvCallback);
