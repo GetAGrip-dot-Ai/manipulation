@@ -16,11 +16,6 @@
 #include <manipulation/multi_frame.h>
 
 
-// ^^^^^^^^^^ THINGS TO FIX ^^^^^^^^^^
-// basket pose position
-// throwing error if the move fails
-// error handling: move to reset pose and try move again if error
-
 
 // Defining your own ROS stream color
 
@@ -82,13 +77,19 @@ namespace rvt = rviz_visual_tools;
 std::vector<geometry_msgs::Pose> obstacle_poses;
 std::vector<shape_msgs::SolidPrimitive> obstacle_primitives;
 geometry_msgs::Pose poi_pose;
-geometry_msgs::Pose updated_poi_pose;
+// geometry_msgs::Pose updated_poi_pose;
 geometry_msgs::Pose basket_pose; 
 geometry_msgs::Pose reset_pose; 
 geometry_msgs::Pose approach_pose;
 geometry_msgs::Pose pregrasp_pose;
+float dx;
+float dy;
+float dz;
 int approach_pose_num = 0;
 int in_case_10 = 0;
+
+float pregrasp_offset = 0.215;
+
 
 // initialize sub-services with perception
 manipulation::multi_frame mf_srv;
@@ -209,6 +210,10 @@ bool moveToPose(geometry_msgs::Pose target_pose){
   bool success = (move_group_interface.plan(my_plan) == moveit::core::MoveItErrorCode::SUCCESS);
   ROS_INFO_NAMED("tutorial", "Visualizing plan 1 (pose goal) %s", success ? "" : "FAILED");
 
+  if(!success){
+    return false;
+  }
+
   // // visualize plan
   ROS_INFO_NAMED("tutorial", "Visualizing plan 1 as trajectory line");
   visual_tools.publishAxisLabeled(target_pose, "pose1");
@@ -219,12 +224,17 @@ bool moveToPose(geometry_msgs::Pose target_pose){
   // return success;
   // execute plan
   // visual_tools.prompt("execute?");
-  move_group_interface.move();
-  return success;
+
+  moveit::planning_interface::MoveItErrorCode moved = move_group_interface.move();
+  if (moved == moveit::planning_interface::MoveItErrorCode::SUCCESS){
+    return true;
+  }
+  return false;
+
 }
 
 // cartesian move to POI
-void cartMoveToPoiForVS(){
+bool cartMoveToPoiForVS(){
   ros::AsyncSpinner spinner(1);
   spinner.start();
 
@@ -248,13 +258,13 @@ void cartMoveToPoiForVS(){
   geometry_msgs::PoseStamped current_pose = move_group_interface.getCurrentPose();
   geometry_msgs::Pose next_pose = current_pose.pose;
 
-  next_pose.position.z = updated_poi_pose.position.z;
+  next_pose.position.z += dz;
   waypoints.push_back(next_pose);
 
-  next_pose.position.y = updated_poi_pose.position.y;
+  next_pose.position.y += dy;
   waypoints.push_back(next_pose);
 
-  next_pose.position.x = updated_poi_pose.position.x;
+  next_pose.position.x += pregrasp_offset;
   waypoints.push_back(next_pose);
 
   moveit_msgs::RobotTrajectory trajectory;
@@ -262,9 +272,13 @@ void cartMoveToPoiForVS(){
   const double eef_step = 0.01;
   double fraction = move_group_interface.computeCartesianPath(waypoints, eef_step, jump_threshold, trajectory);
 
+  if(fraction<0.9){
+    return false;
+  }
+
   // sleep(15.0);
   // Set the execution duration of the trajectory
-  const double duration = 30;
+  const double duration = 35;
   double traj_duration = trajectory.joint_trajectory.points.back().time_from_start.toSec();
   double scale = duration / traj_duration;
   for (auto& point : trajectory.joint_trajectory.points) {
@@ -281,10 +295,17 @@ void cartMoveToPoiForVS(){
   // visual_tools.prompt("Execute multiframe move?");
 
   // You can execute a trajectory like this.
-  move_group_interface.execute(trajectory);
+  
+  moveit::planning_interface::MoveItErrorCode moved = move_group_interface.execute(trajectory);
+  if (moved == moveit::planning_interface::MoveItErrorCode::SUCCESS){
+    return true;
+  }
+  return false;
+  
 }
 
-void cartMoveToPoi(){
+// cartesian move to the poi position
+bool cartMoveToPoi(){
   ros::AsyncSpinner spinner(1);
   spinner.start();
 
@@ -301,14 +322,14 @@ void cartMoveToPoi(){
   visual_tools.publishText(text_pose, "Demo", rvt::WHITE, rvt::XLARGE);
   visual_tools.trigger();
 
-  move_group_interface.setMaxVelocityScalingFactor(0.5);
-  move_group_interface.setMaxAccelerationScalingFactor(0.1);
+  // move_group_interface.setMaxVelocityScalingFactor(0.5);
+  // move_group_interface.setMaxAccelerationScalingFactor(0.1);
 
   std::vector<geometry_msgs::Pose> waypoints;
   geometry_msgs::PoseStamped current_pose = move_group_interface.getCurrentPose();
   geometry_msgs::Pose next_pose = current_pose.pose;
 
-  next_pose.position.x += 0.215;
+  next_pose.position.x += pregrasp_offset;
   waypoints.push_back(next_pose);
 
   moveit_msgs::RobotTrajectory trajectory;
@@ -316,11 +337,14 @@ void cartMoveToPoi(){
   const double eef_step = 0.01;
   double fraction = move_group_interface.computeCartesianPath(waypoints, eef_step, jump_threshold, trajectory);
 
-  ROS_INFO_STREAM("DONE");
+  // ROS_INFO_STREAM("DONE");
+  if (fraction < 0.9){
+    return false;
+  }
 
   // sleep(15.0);
   // Set the execution duration of the trajectory
-  const double duration = 15;
+  const double duration = 20;
   double traj_duration = trajectory.joint_trajectory.points.back().time_from_start.toSec();
   double scale = duration / traj_duration;
   for (auto& point : trajectory.joint_trajectory.points) {
@@ -337,12 +361,16 @@ void cartMoveToPoi(){
   // visual_tools.prompt("Execute multiframe move?");
 
   // You can execute a trajectory like this.
-  move_group_interface.execute(trajectory);
-}
+  moveit::planning_interface::MoveItErrorCode moved = move_group_interface.execute(trajectory);
+  if (moved == moveit::planning_interface::MoveItErrorCode::SUCCESS){
+    return true;
+  }
+  return false;
 
+}
 
 // cartesian move back to pregrasp pose
-void cartMoveToPreGrasp(){
+bool cartMoveToPreGrasp(){
   ros::AsyncSpinner spinner(1);
   spinner.start();
 
@@ -359,23 +387,28 @@ void cartMoveToPreGrasp(){
   visual_tools.publishText(text_pose, "Demo", rvt::WHITE, rvt::XLARGE);
   visual_tools.trigger();
 
-  move_group_interface.setMaxVelocityScalingFactor(0.5);
-  move_group_interface.setMaxAccelerationScalingFactor(0.1);
+  // move_group_interface.setMaxVelocityScalingFactor(0.5);
+  // move_group_interface.setMaxAccelerationScalingFactor(0.1);
 
   std::vector<geometry_msgs::Pose> waypoints;
   geometry_msgs::PoseStamped current_pose = move_group_interface.getCurrentPose();
   geometry_msgs::Pose next_pose = current_pose.pose;
 
-  next_pose.position.x -= 0.215;
+  next_pose.position.x -= pregrasp_offset;
   waypoints.push_back(next_pose);
 
   moveit_msgs::RobotTrajectory trajectory;
   const double jump_threshold = 0.0;
   const double eef_step = 0.01;
   double fraction = move_group_interface.computeCartesianPath(waypoints, eef_step, jump_threshold, trajectory);
+
+  if (fraction < 0.9){
+    return false;
+  }
+
   // sleep(15.0);
   // Set the execution duration of the trajectory
-  const double duration = 15;
+  const double duration = 20;
   double traj_duration = trajectory.joint_trajectory.points.back().time_from_start.toSec();
   double scale = duration / traj_duration;
   for (auto& point : trajectory.joint_trajectory.points) {
@@ -392,11 +425,17 @@ void cartMoveToPreGrasp(){
   // visual_tools.prompt("Execute multiframe move?");
 
   // You can execute a trajectory like this.
-  move_group_interface.execute(trajectory);
+
+  moveit::planning_interface::MoveItErrorCode moved = move_group_interface.execute(trajectory);
+  if (moved == moveit::planning_interface::MoveItErrorCode::SUCCESS){
+    return true;
+  }
+  return false;
+  
 }
 
 // move to basket drop pose
-void moveToBasket(){
+bool moveToBasket(){
   ros::AsyncSpinner spinner(1);
   spinner.start();
 
@@ -440,13 +479,28 @@ void moveToBasket(){
   bool success = (move_group_interface.plan(my_plan) == moveit::core::MoveItErrorCode::SUCCESS);
   ROS_INFO_NAMED("tutorial", "Visualizing plan 1 (pose goal) %s", success ? "" : "FAILED");
 
+  if(!success){
+    return false;
+  }
+
   // Visualize the plan in RViz
   visual_tools.deleteAllMarkers();
   visual_tools.publishText(text_pose, "Joint Space Goal", rvt::WHITE, rvt::XLARGE);
   visual_tools.publishTrajectoryLine(my_plan.trajectory_, joint_model_group);
   visual_tools.trigger();
   // visual_tools.prompt("execute?");
-  move_group_interface.move();
+  // try{
+  //   move_group_interface.move();
+  // }
+  // catch(...){
+  //   ROS_INFO_STREAM("Move to 60 degrees failed");
+  //   return false;
+  // }
+  moveit::planning_interface::MoveItErrorCode moved = move_group_interface.move();
+  if (moved == moveit::planning_interface::MoveItErrorCode::SUCCESS){
+    return true;
+  }
+  return false;
 
   // ros::NodeHandle node_handle;
   // ros::AsyncSpinner spinner(1);
@@ -456,7 +510,7 @@ void moveToBasket(){
   geometry_msgs::PoseStamped current_pose2 = move_group_interface.getCurrentPose();
   geometry_msgs::Pose next_pose = current_pose2.pose;
 
-  next_pose.position.z = 0.4;
+  next_pose.position.z = 0.3;
   waypoints.push_back(next_pose);
 
   // next_pose.position.x = 0.3;
@@ -468,28 +522,36 @@ void moveToBasket(){
   double fraction = move_group_interface.computeCartesianPath(waypoints, eef_step, jump_threshold, trajectory);
   ROS_INFO_NAMED("tutorial", "Visualizing plan (Cartesian path) (%.2f%% achieved)", fraction * 100.0);
 
-  if (fraction < 0.9){
-    moveToPose(next_pose);
+// if (fraction < 0.9){
+//   moveToPose(next_pose);
+// }
+// else{
+  // sleep(15.0);
+  // Set the execution duration of the trajectory
+  const double duration = 20;
+  double traj_duration = trajectory.joint_trajectory.points.back().time_from_start.toSec();
+  double scale = duration / traj_duration;
+  for (auto& point : trajectory.joint_trajectory.points) {
+    point.time_from_start *= scale;
   }
-  else{
-    // sleep(15.0);
-    // Set the execution duration of the trajectory
-    const double duration = 20;
-    double traj_duration = trajectory.joint_trajectory.points.back().time_from_start.toSec();
-    double scale = duration / traj_duration;
-    for (auto& point : trajectory.joint_trajectory.points) {
-      point.time_from_start *= scale;
-    }
-    // Visualize the plan in RViz
-    visual_tools.deleteAllMarkers();
-    visual_tools.publishText(text_pose, "Cartesian Path", rvt::WHITE, rvt::XLARGE);
-    visual_tools.publishPath(waypoints, rvt::LIME_GREEN, rvt::SMALL);
-    for (std::size_t i = 0; i < waypoints.size(); ++i)
-      visual_tools.publishAxisLabeled(waypoints[i], "pt" + std::to_string(i), rvt::SMALL);
-    visual_tools.trigger();
-    // visual_tools.prompt("Execute multiframe move?");
-    move_group_interface.execute(trajectory);
+  // Visualize the plan in RViz
+  visual_tools.deleteAllMarkers();
+  visual_tools.publishText(text_pose, "Cartesian Path", rvt::WHITE, rvt::XLARGE);
+  visual_tools.publishPath(waypoints, rvt::LIME_GREEN, rvt::SMALL);
+  for (std::size_t i = 0; i < waypoints.size(); ++i)
+    visual_tools.publishAxisLabeled(waypoints[i], "pt" + std::to_string(i), rvt::SMALL);
+  visual_tools.trigger();
+  // visual_tools.prompt("Execute multiframe move?");
+
+  
+  moveit::planning_interface::MoveItErrorCode moved2 = move_group_interface.execute(trajectory);
+  if (moved2 == moveit::planning_interface::MoveItErrorCode::SUCCESS){
+    return true;
   }
+  ROS_INFO_STREAM("moving down to basket failed");
+  return false;
+          
+  // }
 
   // MOVE 60 DEGREES
   // current state
@@ -570,12 +632,23 @@ void multiframe(int frame_id){
   bool success1 = (move_group_interface.plan(my_plan) == moveit::core::MoveItErrorCode::SUCCESS);
   visual_tools.publishTrajectoryLine(my_plan.trajectory_, joint_model_group);
   visual_tools.trigger();
+
+  // if(!success1){
+  //   return false;
+  // }
+
+  // moveit::planning_interface::MoveItErrorCode moved = move_group_interface.move();
+  // if (moved == moveit::planning_interface::MoveItErrorCode::SUCCESS){
+  //   return true;
+  // }
+  // return false;
+
   move_group_interface.move();
 
 }
 
 // multiframe cartesian
-void cartMultiframe(int frame_id){
+bool cartMultiframe(int frame_id){
   ros::AsyncSpinner spinner(1);
   spinner.start();
 
@@ -592,8 +665,8 @@ void cartMultiframe(int frame_id){
   visual_tools.publishText(text_pose, "Demo", rvt::WHITE, rvt::XLARGE);
   visual_tools.trigger();
 
-  move_group_interface.setMaxVelocityScalingFactor(0.5);
-  move_group_interface.setMaxAccelerationScalingFactor(0.1);
+  // move_group_interface.setMaxVelocityScalingFactor(0.5);
+  // move_group_interface.setMaxAccelerationScalingFactor(0.1);
 
   std::vector<geometry_msgs::Pose> waypoints;
   geometry_msgs::PoseStamped current_pose = move_group_interface.getCurrentPose();
@@ -630,9 +703,13 @@ void cartMultiframe(int frame_id){
   const double eef_step = 0.01;
   double fraction = move_group_interface.computeCartesianPath(waypoints, eef_step, jump_threshold, trajectory);
 
+  if(fraction < 0.9){
+    return false;
+  }
+
   // sleep(15.0);
   // Set the execution duration of the trajectory
-  const double duration = 7;
+  const double duration = 10;
   double traj_duration = trajectory.joint_trajectory.points.back().time_from_start.toSec();
   double scale = duration / traj_duration;
   for (auto& point : trajectory.joint_trajectory.points) {
@@ -649,7 +726,14 @@ void cartMultiframe(int frame_id){
   // visual_tools.prompt("Execute multiframe move?");
 
   // You can execute a trajectory like this.
-  move_group_interface.execute(trajectory);
+  // move_group_interface.execute(trajectory);
+
+  moveit::planning_interface::MoveItErrorCode moved = move_group_interface.execute(trajectory);
+  if (moved == moveit::planning_interface::MoveItErrorCode::SUCCESS){
+    return true;
+  }
+  return false;
+
 }
 
 // update POI
@@ -661,22 +745,10 @@ void updatePOICallback(const geometry_msgs::Pose msg)
 
 // update POI from visual servoing
 void deltaPOICallback(const geometry_msgs::Pose msg){
-  float dx = msg.position.x;
-  float dy = msg.position.y;
-  float dz = msg.position.z;
-  // poi_pose.position.x = 0.5;
-  // poi_pose.position.y = 0;
-  // poi_pose.position.z = 0.6;
-  // poi_pose.orientation.x = 0;
-  // poi_pose.orientation.y = 0;
-  // poi_pose.orientation.z = 0;
-  // poi_pose.orientation.w = 1;
-  updated_poi_pose = poi_pose;
-  updated_poi_pose.position.x = poi_pose.position.x + dx;
-  updated_poi_pose.position.y = poi_pose.position.y - dy;
-  updated_poi_pose.position.z = poi_pose.position.z + dz;
+  dx = msg.position.x;
+  dy = msg.position.y;
+  dz = msg.position.z;
   ROS_BLUE_STREAM("dx: "<< dx <<" dy: "<< dy<<" dz: "<< dz);
-  ROS_MAGENTA_STREAM("x: "<< updated_poi_pose.position.x <<" y: "<< updated_poi_pose.position.y<<" z: "<< updated_poi_pose.position.z);
 }
 
 // harvest service callback
@@ -707,31 +779,39 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
     case 1:{ // approach plant positions
       std::cout << "approaching plant" << std::endl;
       std::cout << "going to approach position "<< approach_pose_num << std::endl;
+      bool moved;
       if (approach_pose_num == 0){
         approach_pose.position.x = 0.3;
         approach_pose.position.y = 0;
         approach_pose.position.z = 0.6;
-        moveToPose(approach_pose);
+        moved = moveToPose(approach_pose);
         // approach_pose_num = 1;
       }
       else if (approach_pose_num == 1){
         approach_pose.position.x = 0.3;
         approach_pose.position.y = 0;
         approach_pose.position.z = 0.5;
-        moveToPose(approach_pose);
+        moved = moveToPose(approach_pose);
         // approach_pose_num = 2;
       }
       else if (approach_pose_num == 2){
         approach_pose.position.x = 0.3;
         approach_pose.position.y = 0;
         approach_pose.position.z = 0.4;
-        moveToPose(approach_pose);
+        moved = moveToPose(approach_pose);
         // approach_pose_num = 3;
       }
       else {
         response.reply = 0;
       }
-      response.reply = 1;
+      
+      if(moved){
+        response.reply = 1;
+      }
+      else{
+        response.reply = 0;
+      }
+
       return 1;
     }
 
@@ -758,7 +838,7 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
             int did_yolo = mf_srv.response.reply;
             if(did_yolo==1){
                 ROS_RED_STREAM("Done with YOLO, moving to new waypoint");
-                cartMultiframe(frame_id); // execute multiframe move
+                bool cart_mf = cartMultiframe(frame_id); // execute multiframe move
                 frame_id += 1;
             }
         }
@@ -802,17 +882,12 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
 
       // move to pre-grasp POI pose
       std::cout << "moving to pre-grasp pose" << std::endl;
-      // try {
-        pregrasp_pose = poi_pose;
-        pregrasp_pose.position.x -= 0.2;
-        bool success = moveToPose(pregrasp_pose);
-        std::cout << "moved to pre grasp" << std::endl;
-      // }
-      // catch (...) {
+      pregrasp_pose = poi_pose;
+      pregrasp_pose.position.x -= (pregrasp_offset-0.015);
+      bool success = moveToPose(pregrasp_pose);
+      std::cout << "moved to pre grasp" << std::endl;
 
-      // }
-
-      if (success==true){
+      if (success){
         std::cout << "moved to pre grasp" << std::endl;
         response.reply = 1;
       }
@@ -821,46 +896,44 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
         response.reply = 0;
       }
 
-      // response.reply = 1;
       return 1;
     }
     
     case 5:{ // move to POI
       std::cout << "moving to POI" << std::endl;
-      try {
-        cartMoveToPoi();
+      bool moved_to_poi = cartMoveToPoi();
+      if(moved_to_poi){
+        response.reply =1;
       }
-      catch (...) {
-        std::cout << "move to POI pose failed" << std::endl;
+      else{
         response.reply = 0;
       }
-      response.reply = 1;
       return 1;
     }
 
     case 7:{ // move to pre-grasp poi, move to basket drop pose and remove all obstacles
+      // move to pre graps poi
       std::cout << "moving to pre-grasp" << std::endl;
-      try {
-        cartMoveToPreGrasp();
+      bool cart_moved_to_pregrasp = cartMoveToPreGrasp();
+      if (cart_moved_to_pregrasp){
+          std::cout << "moved to pre grasp" << std::endl;
       }
-      catch (...) {
-        std::cout << "move to pre-grasp failed" << std::endl;
-        response.reply = 0;
+      else{
+        std::cout << "move to pre grasp failed" << std::endl;
+        response.reply = 0; 
       }
 
+      // move to basket
       std::cout << "moving to basket" << std::endl;
-      // basket_pose.position.x = 0.45;
-      // basket_pose.position.y = -0.3;
-      // basket_pose.position.z = 0.4;
-      // bool success = moveToPose(basket_pose);
-      // if (success=true){
-      //     std::cout << "moved to basket" << std::endl;
-      // }
-      // else{
-      //   std::cout << "move to basket pose failed" << std::endl;
-      //   response.reply = 0; 
-      // }
-      moveToBasket();
+      bool moved_to_basket = moveToBasket();
+      if (moved_to_basket){
+          std::cout << "moved to basket successfully" << std::endl;
+      }
+      else{
+        std::cout << "move to basket pose failed" << std::endl;
+        response.reply = 0; 
+      }
+      // moveToBasket();
 
       // remove all existing obstacles in the scene
       std::cout << "removing all pepper obstacles" << std::endl;
@@ -910,13 +983,17 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
         ros::Duration(5).sleep();
         // if VS succeeded, move to new POI
         if(did_vs==1){
-
             ROS_BLUE_STREAM("Done with visual servoing, moving to updated POI");
-            ROS_YELLOW_STREAM("x: "<< updated_poi_pose.position.x <<" y: "<< updated_poi_pose.position.y<<" z: "<< updated_poi_pose.position.z);
+            // ROS_YELLOW_STREAM("x: "<< updated_poi_pose.position.x <<" y: "<< updated_poi_pose.position.y<<" z: "<< updated_poi_pose.position.z);
             ros::spinOnce();
-            cartMoveToPoiForVS(); // need to add a check that this move was successful
-            ROS_INFO("Moved to updated POI");
-            response.reply = 1;
+            bool vs_moved_to_poi = cartMoveToPoiForVS();
+            if(vs_moved_to_poi){
+              ROS_INFO("Moved to updated POI");
+              response.reply = 1;
+            }
+            else{
+              response.reply = 0;
+            }
         }
         // if VS failed, tell system
         else{
@@ -928,7 +1005,6 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
       return 1;
 
     }
-  
   }
 }
 
