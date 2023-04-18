@@ -74,6 +74,7 @@ const double tau = 2 * M_PI;
 static const std::string PLANNING_GROUP = "arm";
 namespace rvt = rviz_visual_tools;
 
+
 std::vector<geometry_msgs::Pose> obstacle_poses;
 std::vector<shape_msgs::SolidPrimitive> obstacle_primitives;
 geometry_msgs::Pose poi_pose;
@@ -82,13 +83,17 @@ geometry_msgs::Pose basket_pose;
 geometry_msgs::Pose reset_pose; 
 geometry_msgs::Pose approach_pose;
 geometry_msgs::Pose pregrasp_pose;
+geometry_msgs::Pose pregrasp_pose2;
 float dx;
 float dy;
 float dz;
 int approach_pose_num = 0;
 int in_case_10 = 0;
 
-float pregrasp_offset = 0.215;
+// float pregrasp_offset = 0.215;
+float pregrasp_offset = 0.075; // may need to change tuned number in move to pregrasp in service
+float pregrasp_offset_far = 0.215;
+float pregrasp_offset_z = 0.03; 
 
 
 // initialize sub-services with perception
@@ -273,7 +278,16 @@ bool cartMoveToPoiForVS(){
   double fraction = move_group_interface.computeCartesianPath(waypoints, eef_step, jump_threshold, trajectory);
 
   if(fraction<0.9){
+    ROS_MAGENTA_STREAM("failed plan (fraction)");
     return false;
+  }
+
+  if(trajectory.joint_trajectory.points.empty()){
+    ROS_MAGENTA_STREAM("the plan is cartesian yay");
+  }
+  else{
+    ROS_MAGENTA_STREAM("the plan is maybe not cartesian -- i dont think this catch thing is right lol");
+    // return false;
   }
 
   // sleep(15.0);
@@ -301,6 +315,7 @@ bool cartMoveToPoiForVS(){
     return true;
   }
   return false;
+
   
 }
 
@@ -340,6 +355,14 @@ bool cartMoveToPoi(){
   // ROS_INFO_STREAM("DONE");
   if (fraction < 0.9){
     return false;
+  }
+
+  if(trajectory.joint_trajectory.points.empty()){
+    ROS_MAGENTA_STREAM("the plan is cartesian yay");
+  }
+  else{
+    ROS_MAGENTA_STREAM("the plan is maybe not cartesian -- i dont think this catch thing is right lol");
+    // return false;
   }
 
   // sleep(15.0);
@@ -394,7 +417,7 @@ bool cartMoveToPreGrasp(){
   geometry_msgs::PoseStamped current_pose = move_group_interface.getCurrentPose();
   geometry_msgs::Pose next_pose = current_pose.pose;
 
-  next_pose.position.x -= pregrasp_offset;
+  next_pose.position.x -= 0.05;
   waypoints.push_back(next_pose);
 
   moveit_msgs::RobotTrajectory trajectory;
@@ -408,7 +431,7 @@ bool cartMoveToPreGrasp(){
 
   // sleep(15.0);
   // Set the execution duration of the trajectory
-  const double duration = 20;
+  const double duration = 15;
   double traj_duration = trajectory.joint_trajectory.points.back().time_from_start.toSec();
   double scale = duration / traj_duration;
   for (auto& point : trajectory.joint_trajectory.points) {
@@ -472,7 +495,7 @@ bool moveToBasket(){
   }
 
   // set new J0 value
-  joint_group_positions[0] = J0+alpha+M_PI/3; // move 60 degrees
+  joint_group_positions[0] = J0+alpha+M_PI/2; // move 60 degrees
   move_group_interface.setJointValueTarget(joint_group_positions);
 
   moveit::planning_interface::MoveGroupInterface::Plan my_plan;
@@ -510,7 +533,7 @@ bool moveToBasket(){
   geometry_msgs::PoseStamped current_pose2 = move_group_interface.getCurrentPose();
   geometry_msgs::Pose next_pose = current_pose2.pose;
 
-  next_pose.position.z = 0.3;
+  next_pose.position.z = 0.4;
   waypoints.push_back(next_pose);
 
   // next_pose.position.x = 0.3;
@@ -679,17 +702,17 @@ bool cartMultiframe(int frame_id){
   }
   // pose 2
   else if (frame_id==1){
-    next_pose.position.y -= 0.03;
+    next_pose.position.y += 0.03;
     waypoints.push_back(next_pose);
   }
   // pose 3
   else if (frame_id==2){
-    next_pose.position.z -= 0.03;
+    next_pose.position.y -= 0.03;
     waypoints.push_back(next_pose);
   }
   // pose 4
   else if (frame_id==3){
-    next_pose.position.y += 0.03;
+    next_pose.position.z += 0.03;
     waypoints.push_back(next_pose);
   }
   // pose 5
@@ -709,7 +732,7 @@ bool cartMultiframe(int frame_id){
 
   // sleep(15.0);
   // Set the execution duration of the trajectory
-  const double duration = 10;
+  const double duration = 15;
   double traj_duration = trajectory.joint_trajectory.points.back().time_from_start.toSec();
   double scale = duration / traj_duration;
   for (auto& point : trajectory.joint_trajectory.points) {
@@ -745,6 +768,7 @@ void updatePOICallback(const geometry_msgs::Pose msg)
 
 // update POI from visual servoing
 void deltaPOICallback(const geometry_msgs::Pose msg){
+  // ROS_CYAN_STREAM("AAAAHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH");
   dx = msg.position.x;
   dy = msg.position.y;
   dz = msg.position.z;
@@ -762,7 +786,7 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
     
     case 0:{ // move to reset pose
     std::cout << "moving to reset pose" << std::endl;
-    reset_pose.position.x = 0.3;
+    reset_pose.position.x = 0.15;
     reset_pose.position.y = 0;
     reset_pose.position.z = 0.7;
     bool success = moveToPose(reset_pose);
@@ -781,35 +805,39 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
       std::cout << "going to approach position "<< approach_pose_num << std::endl;
       bool moved;
       if (approach_pose_num == 0){
-        approach_pose.position.x = 0.3;
+        approach_pose.position.x = 0.1;
         approach_pose.position.y = 0;
-        approach_pose.position.z = 0.6;
+        approach_pose.position.z = 0.7;
         moved = moveToPose(approach_pose);
         // approach_pose_num = 1;
       }
       else if (approach_pose_num == 1){
-        approach_pose.position.x = 0.3;
-        approach_pose.position.y = 0;
-        approach_pose.position.z = 0.5;
+        approach_pose.position.x = 0.1;
+        approach_pose.position.y = 0.15;
+        approach_pose.position.z = 0.65;
         moved = moveToPose(approach_pose);
         // approach_pose_num = 2;
       }
       else if (approach_pose_num == 2){
-        approach_pose.position.x = 0.3;
-        approach_pose.position.y = 0;
-        approach_pose.position.z = 0.4;
+        approach_pose.position.x = 0.1;
+        approach_pose.position.y = -0.15;
+        approach_pose.position.z = 0.65;
         moved = moveToPose(approach_pose);
         // approach_pose_num = 3;
       }
       else {
         response.reply = 0;
+        return 1;
       }
       
       if(moved){
         response.reply = 1;
       }
       else{
-        response.reply = 0;
+        approach_pose.position.x = 0.15;
+        approach_pose.position.y = 0;
+        approach_pose.position.z = 0.6;
+        moveToPose(approach_pose);
       }
 
       return 1;
@@ -867,23 +895,24 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
     case 3:{ // create pepper obstacles and move to pre-grasp POI pose
 
       // create obstacles
-      int m = obstacle_poses.size();
-      for(int i=0; i<m; i++){
-        ROS_INFO_STREAM("Obstacle Size: ");
-        ROS_INFO_STREAM(m);
-        try {
-          addObstacle(obstacle_poses[i], obstacle_primitives[i], std::to_string(i));
-        }
-        catch (...) {
-          std::cout << "creating obstacles failed" << std::endl;
-          response.reply = 0;
-        }
-      }
+      // int m = obstacle_poses.size();
+      // for(int i=0; i<m; i++){
+      //   ROS_INFO_STREAM("Obstacle Size: ");
+      //   ROS_INFO_STREAM(m);
+      //   try {
+      //     addObstacle(obstacle_poses[i], obstacle_primitives[i], std::to_string(i));
+      //   }
+      //   catch (...) {
+      //     std::cout << "creating obstacles failed" << std::endl;
+      //     response.reply = 0;
+      //   }
+      // }
 
       // move to pre-grasp POI pose
       std::cout << "moving to pre-grasp pose" << std::endl;
       pregrasp_pose = poi_pose;
-      pregrasp_pose.position.x -= (pregrasp_offset-0.015);
+      pregrasp_pose.position.x -= (pregrasp_offset_far-0.015);
+      pregrasp_pose.position.z -= pregrasp_offset_z;
       bool success = moveToPose(pregrasp_pose);
       std::cout << "moved to pre grasp" << std::endl;
 
@@ -895,27 +924,18 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
         std::cout << "move to pre-grasp POI pose failed" << std::endl;
         response.reply = 0;
       }
-
-      return 1;
-    }
-    
-    case 5:{ // move to POI
-      std::cout << "moving to POI" << std::endl;
-      bool moved_to_poi = cartMoveToPoi();
-      if(moved_to_poi){
-        response.reply =1;
-      }
-      else{
-        response.reply = 0;
-      }
+      ROS_BLUE_STREAM(response.reply);
       return 1;
     }
 
-    case 7:{ // move to pre-grasp poi, move to basket drop pose and remove all obstacles
-      // move to pre graps poi
+    case 7:{ // move back to pre-grasp poi, move to basket drop pose and remove all obstacles
+      // move back to pre grasp poi
       std::cout << "moving to pre-grasp" << std::endl;
-      bool cart_moved_to_pregrasp = cartMoveToPreGrasp();
-      if (cart_moved_to_pregrasp){
+      bool cart_move1 = cartMoveToPreGrasp();
+      bool cart_move2 = cartMoveToPreGrasp();
+      bool cart_move3 = cartMoveToPreGrasp();
+      bool cart_move4 = cartMoveToPreGrasp();
+      if (cart_move1 && cart_move2 && cart_move3 && cart_move4){
           std::cout << "moved to pre grasp" << std::endl;
       }
       else{
@@ -936,19 +956,19 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
       // moveToBasket();
 
       // remove all existing obstacles in the scene
-      std::cout << "removing all pepper obstacles" << std::endl;
-      int n = obstacle_poses.size();
-      std::vector<std::string> object_ids;
-      for(int i=0; i<n; i++){
-        object_ids.push_back(std::to_string(i));
-      }
-      try {
-        removeObstacles(object_ids);
-      }
-      catch (...) {
-        std::cout << "adding obstacle failed" << std::endl;
-        response.reply = 0;
-      }
+      // std::cout << "removing all pepper obstacles" << std::endl;
+      // int n = obstacle_poses.size();
+      // std::vector<std::string> object_ids;
+      // for(int i=0; i<n; i++){
+      //   object_ids.push_back(std::to_string(i));
+      // }
+      // try {
+      //   removeObstacles(object_ids);
+      // }
+      // catch (...) {
+      //   std::cout << "adding obstacle failed" << std::endl;
+      //   response.reply = 0;
+      // }
 
       response.reply = 1;
       return 1;
@@ -974,34 +994,64 @@ bool harvestSrvCallback(manipulation::harvest::Request& request, manipulation::h
         ROS_INFO("Received Response");
         ROS_RED_STREAM("response from perception");
 
-        ros::AsyncSpinner spinner(1);
-        spinner.start();
-        ros::spinOnce();
+        // ros::AsyncSpinner spinner(1);
+        // spinner.start();
+        // ros::spinOnce();
 
         // check reply
         int did_vs = vs_srv.response.reply;
         ros::Duration(5).sleep();
-        // if VS succeeded, move to new POI
+
+        // if VS succeeded, move to updated poi
         if(did_vs==1){
             ROS_BLUE_STREAM("Done with visual servoing, moving to updated POI");
-            // ROS_YELLOW_STREAM("x: "<< updated_poi_pose.position.x <<" y: "<< updated_poi_pose.position.y<<" z: "<< updated_poi_pose.position.z);
             ros::spinOnce();
+            // move to pregrasp 2 from old poi
+            pregrasp_pose2 = poi_pose;
+            pregrasp_pose2.position.x -= (pregrasp_offset-0.015);
+            bool success1 = moveToPose(pregrasp_pose2);
+            if (!success1){
+              ROS_BLUE_STREAM("Moving to pre grasp 2 failed - telling system VS failed");
+              response.reply = 0;
+            }
+
+            // cartesian move to upated poi 
             bool vs_moved_to_poi = cartMoveToPoiForVS();
             if(vs_moved_to_poi){
-              ROS_INFO("Moved to updated POI");
+              ROS_BLUE_STREAM("Moved to updated POI");
               response.reply = 1;
             }
             else{
+              ROS_BLUE_STREAM("Cartesian move to POI failed");
               response.reply = 0;
             }
         }
-        // if VS failed, tell system
+        // if VS failed, move to old poi
         else{
-          ROS_RED_STREAM("Visual Servoing failed");
-          response.reply = 0; // tell system visual servoing failed
+          ROS_BLUE_STREAM("Visual Servoing failed in perception world");
+          // move to pre grasp 2 with joint space move
+          pregrasp_pose2 = poi_pose;
+          pregrasp_pose2.position.x -= (pregrasp_offset-0.015);
+          pregrasp_pose2.position.z += (pregrasp_offset_z);
+          bool success1 = moveToPose(pregrasp_pose2);
+          if (!success1){
+            ROS_BLUE_STREAM("Moving to pre grasp 2 failed - telling system VS failed");
+            response.reply = 0;
+          }
+          
+          // move to POI with cartesian move
+          ROS_INFO_STREAM("Moving to POI");
+          bool success2 = cartMoveToPoi();
+          if (!success2){
+            ROS_BLUE_STREAM("cartesian move to poi failed - telling system VS failed");
+            response.reply = 0;
+          }
+
+          response.reply = 1; // tell system we moved to POI
+
         }
 
-      response.reply = 0;
+      // response.reply = 0;
       return 1;
 
     }
