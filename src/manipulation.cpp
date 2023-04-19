@@ -889,7 +889,7 @@ bool moveToPG2ForVS(){
   // constrained_pose.position.x -= 0.03; // (0.192 - 0.061525); // offset between our end-effector gripping point and tool_frame for robotiq ee
   geometry_msgs::Pose current_pose = move_group_interface.getCurrentPose().pose;
   constrained_pose.position.y =  current_pose.position.y + dy;
-  constrained_pose.position.z  = current_pose.position.z + dz;
+  constrained_pose.position.z  = current_pose.position.z + dz + 0.01;
   constrained_pose.position.x = current_pose.position.x + dx - 0.04; //UPDATE MAYBE!
   move_group_interface.setPoseTarget(constrained_pose);
 
